@@ -52,6 +52,7 @@ extern "C"
 #include <time.h>
 #include <signal.h>
 #include <getopt.h>
+#include <stdarg.h>
 
 #include <netinet/in.h>
 
@@ -132,7 +133,7 @@ typedef struct ping_data
 #define MAX_PING_DATA   ( MAX_IP_PACKET - SIZE_IP_HDR - SIZE_ICMP_HDR )
 
 /* sized so as to be like traditional ping */
-#define DEFAULT_PING_DATA_SIZE  ( MIN_PING_DATA + 44 ) 
+#define DEFAULT_PING_DATA_SIZE  56
 
 /* maxima and minima */
 #define MAX_COUNT               10000
@@ -328,7 +329,6 @@ void add_addr( char *name, char *host, struct in_addr ipaddr );
 void add_addr( char *name, char *host, FPING_SOCKADDR *ipaddr );
 #endif
 char *na_cat( char *name, struct in_addr ipaddr );
-char *cpystr( char *string );
 void crash_and_burn( char *message );
 void errno_crash_and_burn( char *message );
 char *get_host_by_address( struct in_addr in );
@@ -353,6 +353,7 @@ HOST_ENTRY *ev_dequeue();
 void ev_remove(HOST_ENTRY *h);
 void add_cidr(char *);
 void add_range(char *, char *);
+void print_warning(char *fmt, ...);
 
 /*** function definitions ***/
 
@@ -858,7 +859,6 @@ int main( int argc, char **argv )
         FILE *ping_file;
         char line[132];
         char host[132];
-        char *p;
         
         if( strcmp( filename, "-" ) == 0 )
             ping_file = fdopen( 0, "r" );
@@ -877,9 +877,7 @@ int main( int argc, char **argv )
             if( ( !*host ) || ( host[0] == '#' ) )  /* magic to avoid comments */
                 continue;
             
-            p = cpystr( host );
-            add_name( p );
-        
+            add_name(host);
         }/* WHILE */
         
         fclose( ping_file );
@@ -1030,7 +1028,7 @@ void add_cidr(char *addr)
         char buffer[20];
         in_addr_tmp.s_addr = htonl(net_addr);
         inet_ntop(AF_INET, &in_addr_tmp, buffer, sizeof(buffer));
-        add_name(cpystr(buffer));
+        add_name(buffer);
     }
 
     freeaddrinfo(addr_res);
@@ -1080,7 +1078,7 @@ void add_range(char *start, char *end)
         char buffer[20];
         in_addr_tmp.s_addr = htonl(start_long);
         inet_ntop(AF_INET, &in_addr_tmp, buffer, sizeof(buffer));
-        add_name(cpystr(buffer));
+        add_name(buffer);
         start_long++;
     }
 }
@@ -1152,6 +1150,7 @@ void main_loop()
                     ev_enqueue(h);
                 }
             }
+            /* Event type: timeout */
             else if(ev_first->ev_type == EV_TYPE_TIMEOUT) {
                 num_timeout++;
                 remove_job(ev_first);
@@ -1585,10 +1584,11 @@ int send_ping( int s, HOST_ENTRY *h )
 
         }/* IF */
         
-        num_unreachable++;
-        remove_job( h ); 
+        h->num_sent++;
+        h->num_sent_i++;
+        num_pingsent++;
         free( buffer );
-        return(0);
+        return(1);
     }
 
     /* mark this trial as outstanding */
@@ -1914,7 +1914,7 @@ int handle_random_icmp( FPING_ICMPHDR *p, int psize, FPING_SOCKADDR *addr )
             
             if( p->icmp_code > ICMP_UNREACH_MAXTYPE )
             {
-                fprintf( stderr, "ICMP Unreachable (Invalid Code) from %s for ICMP Echo sent to %s",
+                print_warning("ICMP Unreachable (Invalid Code) from %s for ICMP Echo sent to %s",
                     inet_ntoa( addr->sin_addr ), h->host );
 
 #else
@@ -1927,13 +1927,13 @@ int handle_random_icmp( FPING_ICMPHDR *p, int psize, FPING_SOCKADDR *addr )
             
             if( p->icmp6_code > ICMP_UNREACH_MAXTYPE )
             {
-                fprintf( stderr, "ICMP Unreachable (Invalid Code) from %s for ICMP Echo sent to %s",
+                print_warning("ICMP Unreachable (Invalid Code) from %s for ICMP Echo sent to %s",
                     addr_ascii, h->host );
 #endif
             }/* IF */
             else
             {
-                fprintf( stderr, "%s from %s for ICMP Echo sent to %s",
+                print_warning("%s from %s for ICMP Echo sent to %s",
 #ifndef IPV6
                     icmp_unreach_str[p->icmp_code], inet_ntoa( addr->sin_addr ), h->host );
 #else
@@ -1944,12 +1944,12 @@ int handle_random_icmp( FPING_ICMPHDR *p, int psize, FPING_SOCKADDR *addr )
 
             if( inet_addr( h->host ) == -1 )
 #ifndef IPV6
-                fprintf( stderr, " (%s)", inet_ntoa( h->saddr.sin_addr ) );
+                print_warning(" (%s)", inet_ntoa( h->saddr.sin_addr ) );
 #else
-                fprintf( stderr, " (%s)", addr_ascii);
+                print_warning(" (%s)", addr_ascii);
 #endif
             
-            fprintf( stderr, "\n" );
+            print_warning("\n" );
         
         }/* IF */
 
@@ -2087,11 +2087,14 @@ void add_name( char *name )
         /* input name is an IP addr, go with it */
         if( name_flag )
         {
-            if( addr_flag )
-                add_addr( name, na_cat( get_host_by_address( *ipa ), *ipa ), *ipa );
+            if( addr_flag ) {
+                char namebuf[256];
+                snprintf(namebuf, 256, "%s (%s)", get_host_by_address(*ipa), name);
+                add_addr(name, namebuf, *ipa);
+            }
             else
             {
-                nm = cpystr( get_host_by_address( *ipa ) );
+                nm = get_host_by_address( *ipa );
                 add_addr( name, nm, *ipa );
 
             }/* ELSE */
@@ -2124,36 +2127,39 @@ void add_name( char *name )
             if( getnetgrent( &machine, &user_ignored, &domain_ignored ) == 0 )
             {
                 endnetgrent();
-                if( !quiet_flag )
-                    fprintf( stderr, "%s address not found\n", name );
+                print_warning("%s address not found\n", name );
                 
                 num_noaddress++;
                 return;
             
             }/* IF */
             else
-                add_name( cpystr( machine ) );
+                add_name(machine);
 
             while( getnetgrent( &machine, &user_ignored, &domain_ignored ) )
-                add_name( cpystr( machine ) );
+                add_name(machine);
       
             endnetgrent();
             return;
 #else
-            if( !quiet_flag )
-                fprintf( stderr, "%s address not found\n", name );
+            print_warning("%s address not found\n", name );
             
             num_noaddress++;
             return ; 
 #endif /* NIS_GROUPS */
         }/* IF */
     }/* IF */
+
+    if(host_ent->h_addrtype != AF_INET) {
+        print_warning("%s: IPv6 address returned by gethostbyname (options inet6 in resolv.conf?)\n", name );
+        num_noaddress++;
+        return; 
+    }
   
     host_add = ( struct in_addr* )*( host_ent->h_addr_list ); 
     if( host_add == NULL )
     { 
-        if( !quiet_flag )
-            fprintf( stderr, "%s has no address data\n", name );
+        print_warning("%s has no address data\n", name );
         
         num_noaddress++;
         return; 
@@ -2164,11 +2170,15 @@ void add_name( char *name )
         /* it is indeed a hostname with a real address */
         while( host_add )
         {
-            if( name_flag && addr_flag )
-                add_addr( name, na_cat( name, *host_add ), *host_add );
+            if( name_flag && addr_flag ) {
+                char namebuf[256];
+                nm = inet_ntoa(*host_add);
+                snprintf(namebuf, 256, "%s (%s)", name, nm);
+                add_addr( name, namebuf, *host_add );
+            }
             else if( addr_flag )
             {
-                nm = cpystr( inet_ntoa( *host_add ) );
+                nm = inet_ntoa(*host_add);
                 add_addr( name, nm, *host_add );
             }/* ELSE IF */
             else
@@ -2182,74 +2192,76 @@ void add_name( char *name )
         }/* WHILE */
     }/* ELSE */
 #else
-    FPING_SOCKADDR  dst;
-    struct addrinfo     *res, hints;
-    int                     ret_ga;
-    char                        *hostname;
-    size_t len;
+    FPING_SOCKADDR    dst;
+    struct addrinfo   *res, hints;
+    int               ret_ga;
+    size_t            len;
+    char              *printname;
+    char              namebuf[256];
+    char              addrbuf[256];
 
     /* getaddrinfo */
     bzero(&hints, sizeof(struct addrinfo));
-    hints.ai_flags = name_flag ? AI_CANONNAME : 0;
+    hints.ai_flags = 0;
     hints.ai_family = AF_INET6;
     hints.ai_socktype = SOCK_RAW;
     hints.ai_protocol = IPPROTO_ICMPV6;
-
     ret_ga = getaddrinfo(name, NULL, &hints, &res);
     if (ret_ga) {
         if(!quiet_flag)
-            warnx("%s", gai_strerror(ret_ga));
-        num_noaddress++;
-        return; 
-    }
-    if (res->ai_canonname) hostname = res->ai_canonname;
-    else hostname = name;
-    if (!res->ai_addr) {
-        if(!quiet_flag)
-            warnx("getaddrinfo failed");
+            print_warning("%s: %s\n", name, gai_strerror(ret_ga));
         num_noaddress++;
         return; 
     }
     len = res->ai_addrlen;
     if (len > sizeof(FPING_SOCKADDR)) len = sizeof(FPING_SOCKADDR);
     (void)memcpy(&dst, res->ai_addr, len);
-    add_addr(name, name, &dst);
+
+    /* name_flag: addr -> name lookup requested) */
+    if(!name_flag) {
+        printname = name;
+    }
+    else {
+        int ret;
+        ret = getnameinfo(res->ai_addr, res->ai_addrlen, namebuf,
+                          sizeof(namebuf)/sizeof(char), NULL, 0, 0);
+        if (ret) {
+            if(!quiet_flag) {
+                print_warning("%s: %s\n", name, gai_strerror(ret_ga));
+            }
+            num_noaddress++;
+            return; 
+        }
+        printname = namebuf;
+    }
+
+    /* addr_flag: name -> addr lookup requested */
+    if(addr_flag) {
+        int ret;
+        ret = getnameinfo(res->ai_addr, res->ai_addrlen, addrbuf,
+                          sizeof(addrbuf)/sizeof(char), NULL, 0, NI_NUMERICHOST);
+        if (ret) {
+            if(!quiet_flag) {
+                print_warning("%s: %s\n", name, gai_strerror(ret_ga));
+            }
+            num_noaddress++;
+            return; 
+        }
+
+        if(name_flag) {
+            char nameaddrbuf[512];
+            snprintf(nameaddrbuf, sizeof(nameaddrbuf)/sizeof(char), "%s (%s)", printname, addrbuf);
+            add_addr(name, nameaddrbuf, &dst);
+        }
+        else {
+            add_addr(name, addrbuf, &dst);
+        }
+    }
+    else {
+        add_addr(name, printname, &dst);
+    }
 #endif
 } /* add_name() */
-
-
-/************************************************************
-
-  Function: na_cat
-
-*************************************************************
-
-  Inputs:  char* name, struct in_addr ipaddr
-
-  Returns:  char*
-
-  Description:
-
-************************************************************/
-
-char *na_cat( char *name, struct in_addr ipaddr )
-{
-    char *nm, *as;
-
-    as = inet_ntoa( ipaddr );
-    nm = ( char* )malloc( strlen( name ) + strlen( as ) + 4 );
-
-    if( !nm )
-        crash_and_burn( "can't allocate some space for a string" );
-    
-    strcpy( nm, name );
-    strcat( nm, " (" );
-    strcat( nm, as );
-    strcat( nm, ")" );
-
-    return( nm );
-
-} /* na_cat() */
 
 
 /************************************************************
@@ -2282,8 +2294,8 @@ void add_addr( char *name, char *host, FPING_SOCKADDR *ipaddr )
 
     memset( ( char* ) p, 0, sizeof( HOST_ENTRY ) );
 
-    p->name = name;
-    p->host = host;
+    p->name = strdup(name);
+    p->host = strdup(host);
 #ifndef IPV6
     p->saddr.sin_family = AF_INET;
     p->saddr.sin_addr = ipaddr; 
@@ -2397,41 +2409,6 @@ char *get_host_by_address( struct in_addr in )
 
 } /* get_host_by_address() */
 
-
-/************************************************************
-
-  Function: cpystr
-
-*************************************************************
-
-  Inputs:  char* string
-
-  Returns:  char*
-
-  Description:
-
-************************************************************/
-
-char *cpystr( char *string )
-{
-    char *dst;
-
-    if( string )
-    {
-        dst = ( char* )malloc( 1 + strlen( string ) );
-        if( !dst )
-            crash_and_burn( "can't allocate some space for a string" );
-        
-        strcpy( dst, string );
-        return dst;
-    
-    }/* IF */
-    else 
-        return NULL;
-
-} /* cpystr() */
-
-
 /************************************************************
 
   Function: crash_and_burn
@@ -2471,6 +2448,25 @@ void errno_crash_and_burn( char *message )
     fprintf( stderr, "%s: %s : %s\n", prog, message, strerror( errno ) );
     exit( 4 );
 } /* errno_crash_and_burn() */
+
+
+/************************************************************
+
+  Function: print_warning
+
+  Description: fprintf(stderr, ...), unless running with -q
+
+*************************************************************/
+
+void print_warning(char *format, ...) {
+    va_list args;
+    if(!quiet_flag) {
+        va_start(args, format );
+        vfprintf(stderr, format, args);
+        va_end(args);
+    }
+}
+
 
 
 /************************************************************
@@ -2792,7 +2788,8 @@ void ev_remove(HOST_ENTRY *h)
     if(h->ev_next) {
         h->ev_next->ev_prev = h->ev_prev;
     }
-    h->ev_next=h->ev_prev=NULL;
+    h->ev_prev = NULL;
+    h->ev_next = NULL;
 }
 
 
@@ -2815,7 +2812,7 @@ void usage(int is_error)
     fprintf(out, "Usage: %s [options] [targets...]\n", prog );
     fprintf(out, "   -a         show targets that are alive\n" );
     fprintf(out, "   -A         show targets by address\n" );
-    fprintf(out, "   -b n       amount of ping data to send, in bytes (default %d)\n", ping_data_size );
+    fprintf(out, "   -b n       amount of ping data to send, in bytes (default %d)\n", DEFAULT_PING_DATA_SIZE);
     fprintf(out, "   -B f       set exponential backoff factor to f\n" );
     fprintf(out, "   -c n       count of pings to send to each target (default %d)\n", count );  
     fprintf(out, "   -C n       same as -c, report results in verbose format\n" );

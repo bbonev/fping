@@ -1,10 +1,34 @@
-Unreleased
+2012-09-04  David Schweikert  <david@schweikert.ch>
+  * Version 3.4
+  * Revert "Output statistics to stdout instead of stderr", because it breaks
+    tools assuming the output goes to stderr
+
+2012-08-19  David Schweikert  <david@schweikert.ch>
+  * Version 3.3
+  * Do not output icmp errors with -q (#1)
+  * Add --enable-ipv4 and --enable-ipv6 options to configure (Niclas Zeising)
+  * Fix removing of unreachable hosts when doing loop (Thomas Liske, #13 #23)
+  * Fix -A for fping6 (reported by Matt LaPlante, #14)
+  * Fix "options inet6" breaking IPv4 name resolution (reported by Matt LaPlante, #17)
+  * Output statistics to stdout instead of stderr (suggested by Simon Leinen, #9)
+  * Set default data size to 56 bytes on all architectures (#18)
+  * Added contrib/fping.spec (Stephen Schaefer, #24)
+  * Convert man-page source to POD for easier maintenance
+  * Fix error message on DNS error for IPv6 hosts (#27)
+  * Fix -n flag in fping6 (#28)
+  * Man-page fix: TOS option typo (Thomas Liske, #23)
+  * Man-page fix: inconsistency in regards to numeric arguments (Robert Henney)
+  * Man-page fix: better description of option -q (#15)
+
+2012-05-29  David Schweikert  <david@schweikert.ch>
+  * Version 3.2
+  * Improve documentation for -g option (G.W. Haywood)
   * Performance optimization for big select timeouts (#10, Andrey Bondarenko)
   * Fix restart of select call after interrupt signal (#8, Boian Bonev)
+  * Fix infinite loop caused by linked list corruption (#11, Boian Bonev)
 
-Thu Apr 26 2012
-David Schweikert <david@schweikert.ch>
-- Revision v3.1
+2012-04-26  David Schweikert  <david@schweikert.ch>
+  * Version 3.1
   * -g option (generate): exclude network and broadcast address for cidr
     ranges (idea by Eric Brander)
   * do not explicitely check if running as root, to make it possible to
@@ -18,18 +42,16 @@ David Schweikert <david@schweikert.ch>
   * Added -H option to specify number of hops (Paul Duda)
   * Output usage information to stdout when called with -h (Paul Duda)
 
-Thu Dec 28 2011
-David Schweikert <david@schweikert.ch>
-- Revision v3.0
+2011-12-28  David Schweikert  <david@schweikert.ch>
+  * Version 3.0
   * rewritten main loop for improved performance
   * -T parameter (select timeout) now obsolete
   * Maintenance taken over from unresponsive previous maintainer
     (anybody please step up, if you disagree)
   * New homepage: www.fping.org
 
-Mon Dec 21 2009
-Tobi Oetiker <tobi@oetiker.ch>
-- Revision v2.4b2-to3-ipv6
+2009-12-21  Tobi Oetiker  <tobi@oetiker.ch>
+  * Version v2.4b2-to3-ipv6
   * added -On option to set the TOS octet
   * Removed unused variables from code
   * updated to current autoconf standards
