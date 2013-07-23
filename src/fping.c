@@ -54,6 +54,7 @@ extern "C"
 #include <getopt.h>
 #include <stdarg.h>
 
+#define __APPLE_USE_RFC_3542 1
 #include <netinet/in.h>
 
 #include "config.h"
@@ -313,6 +314,7 @@ int verbose_flag, quiet_flag, stats_flag, unreachable_flag, alive_flag;
 int elapsed_flag, version_flag, count_flag, loop_flag;
 int per_recv_flag, report_all_rtts_flag, name_flag, addr_flag, backoff_flag;
 int multif_flag;
+int timestamp_flag = 0;
 #if defined( DEBUG ) || defined( _DEBUG )
 int randomly_lose_flag, sent_times_flag, trace_flag, print_per_system_flag;
 int lose_factor;
@@ -491,7 +493,7 @@ int main( int argc, char **argv )
 
     /* get command line options */
 
-    while( ( c = getopt( argc, argv, "gedhlmnqusaAvz:t:H:i:p:f:r:c:b:C:Q:B:S:I:T:O:" ) ) != EOF )
+    while( ( c = getopt( argc, argv, "gedhlmnqusaAvDz:t:H:i:p:f:r:c:b:C:Q:B:S:I:T:O:" ) ) != EOF )
     {
         switch( c )
         {
@@ -580,6 +582,10 @@ int main( int argc, char **argv )
 
         case 's':
             stats_flag = 1;
+            break;
+
+        case 'D':
+            timestamp_flag = 1;
             break;
 
         case 'l':
@@ -683,7 +689,7 @@ int main( int argc, char **argv )
 
     /* validate various option settings */
 
-    if (ttl < 0 || ttl > 255) {  
+    if (ttl > 255) {
         fprintf(stderr, "ping: ttl %u out of range\n", ttl);  
         usage(1);
     }  
@@ -1142,7 +1148,7 @@ void main_loop()
                     ev_enqueue(h);
                 }
                 /* Count mode: schedule timeout after last ping */
-                else if(count_flag && count_flag && h->num_sent >= count) {
+                else if(count_flag && h->num_sent >= count) {
                     h->ev_type = EV_TYPE_TIMEOUT;
                     h->ev_time.tv_sec = last_send_time.tv_sec;
                     h->ev_time.tv_usec = last_send_time.tv_usec;
@@ -1573,7 +1579,12 @@ int send_ping( int s, HOST_ENTRY *h )
         ( struct sockaddr* )&h->saddr, sizeof( FPING_SOCKADDR ) );
 
     if( n < 0 || n != ping_pkt_size )
-    {
+    if(
+        (n < 0 || n != ping_pkt_size)
+#if defined( EHOSTDOWN )
+        && errno != EHOSTDOWN
+#endif
+    ) {
         if( verbose_flag || unreachable_flag )
         {
             printf( "%s", h->host );
@@ -1822,6 +1833,11 @@ int wait_for_reply(long wait_time)
 
     if( per_recv_flag )
     {
+        if(timestamp_flag) {
+            printf("[%lu.%06lu] ",
+                 (unsigned long)current_time.tv_sec,
+                 (unsigned long)current_time.tv_usec);
+        }
         avg = h->total_time / h->num_recv;
         printf( "%s%s : [%d], %d bytes, %s ms",
             h->host, h->pad, this_count, result, sprint_tm( this_reply ) );
@@ -2534,36 +2550,32 @@ char * sprint_tm( int t )
 {
     static char buf[10];
 
-    /* <= 0.99 ms */
-    if( t < 100 )
-    {
+    if( t < 0 ) {
+        /* negative (unexpected) */
+        sprintf( buf, "%.2g", (double) t / 100 );
+    }
+    else if( t < 100 ) {
+        /* <= 0.99 ms */
         sprintf( buf, "0.%02d", t );
-        return( buf );
-
-    }/* IF */
-
-    /* 1.00 - 9.99 ms */
-    if( t < 1000 )
-    {
+    }
+    else if( t < 1000 ) {
+        /* 1.00 - 9.99 ms */
         sprintf( buf, "%d.%02d", t / 100, t % 100 );
-        return( buf );
-
-    }/* IF */
-
-    /* 10.0 - 99.9 ms */
-    if( t < 10000 )
-    {
+    }
+    else if( t < 10000 ) {
+        /* 10.0 - 99.9 ms */
         sprintf( buf, "%d.%d", t / 100, ( t % 100 ) / 10 );
-        return( buf );
-    
-    }/* IF */
-  
-    /* >= 100 ms */
-    sprintf( buf, "%d", t / 100 );
+    }
+    else if( t < 100000000 ) {
+        /* 100 - 1'000'000 ms */
+        sprintf( buf, "%d", t / 100 );
+    }
+    else {
+        sprintf( buf, "%.2e", (double) (t / 100) );
+    }
+
     return( buf );
-
-} /* sprint_tm() */
-
+}
 
 /************************************************************
 
@@ -2816,6 +2828,7 @@ void usage(int is_error)
     fprintf(out, "   -B f       set exponential backoff factor to f\n" );
     fprintf(out, "   -c n       count of pings to send to each target (default %d)\n", count );  
     fprintf(out, "   -C n       same as -c, report results in verbose format\n" );
+    fprintf(out, "   -D         print timestamp before each output line\n" );
     fprintf(out, "   -e         show elapsed time on return packets\n" );
     fprintf(out, "   -f file    read list of targets from a file ( - means stdin) (only if no -g specified)\n" );
     fprintf(out, "   -g         generate target list (only if no -f specified)\n" );

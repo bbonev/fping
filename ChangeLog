@@ -1,3 +1,12 @@
+2013-05-22  David Schweikert  <david@schweikert.ch>
+  * Version 3.5
+  * Fix sprint_tm buffer size crash (reported by Japheth Cleaver)
+  * Addded -D flag to print timestamps (Toke Høiland-Jørgensen)
+  * Fix fping6 build on OS X 10.8 (unknown contributor)
+  * Fix compatibility issue with FreeBSD (Alexandre Raynaud, Jason Harris, #39)
+  * Fping.spec: fix setuid permissions and provides fping6 (Marcus Vinicius Ferreira)
+  * Re-create configure script with autoconf 2.69 for aarch64 support (Chuck Anderson, #45)
+
 2012-09-04  David Schweikert  <david@schweikert.ch>
   * Version 3.4
   * Revert "Output statistics to stdout instead of stderr", because it breaks
